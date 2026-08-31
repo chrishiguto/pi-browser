@@ -1,34 +1,44 @@
 {
   "name": "pi-browser",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Thin, self-contained browser extension for pi, built on pinned agent-browser — open, click, fill, and screenshot from the conversation with the CLI's own vocabulary as the interface",
   "keywords": [
     "pi-package"
   ],
+  "author": "Christiano Higuto",
   "type": "module",
-  "pi": {
-    "extensions": [
-      "./extensions/browser/index.ts"
-    ]
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chrishiguto/pi-browser.git"
   },
+  "files": [
+    "extensions/",
+    "src/",
+    "skills/"
+  ],
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24"
   },
   "scripts": {
+    "typecheck": "tsc",
     "test:unit": "node --import tsx --test test/unit/*.test.ts",
     "test:integration": "node --import tsx --test --test-concurrency=1 test/integration/*.test.ts",
     "test:smoke": "node --import tsx --test test/smoke/*.test.ts",
-    "test": "npm run test:unit && npm run test:integration && npm run test:smoke",
-    "typecheck": "tsc --noEmit"
+    "test": "npm run test:unit && npm run test:integration && npm run test:smoke"
   },
   "dependencies": {
     "agent-browser": "0.35.1"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "typebox": "*"
+    "@earendil-works/pi-ai": ">=0.84.0 <1",
+    "@earendil-works/pi-coding-agent": ">=0.84.0 <1",
+    "@earendil-works/pi-tui": ">=0.84.0 <1",
+    "typebox": ">=1.0.0 <2"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/browser/index.ts"
+    ]
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "0.84.3",

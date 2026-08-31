@@ -1,23 +1,33 @@
 # pi-browser
 
-a thin, self-contained browser extension for [pi](https://github.com/earendil-works/pi) over pinned [agent-browser](https://www.npmjs.com/package/agent-browser). open pages, click, fill, and screenshot from the conversation — the CLI's own vocabulary is the interface, taught by a bundled skill.
+a browser extension for [pi](https://github.com/earendil-works/pi) on top of a pinned [agent-browser](https://www.npmjs.com/package/agent-browser). open pages, click, fill, and screenshot from the conversation. the agent-browser CLI is the vocabulary, and a bundled skill teaches it.
 
 ## why this exists
 
-browser tooling for agents tends to grow a wide bespoke tool surface that drifts from the automation engine underneath. this package inverts that: one generic tool, `browser_run`, executes exactly one pinned agent-browser command per call (`click @e2`, `snapshot -i -c`, `wait --load networkidle`, …), so the vocabulary stays the CLI's and the pinned version is the contract.
+most browser packages for agents define their own tool surface, which then drifts from the automation engine underneath. i wanted the opposite: one generic tool, `browser_run`, that executes exactly one agent-browser command per call (`click @e2`, `snapshot -i -c`, `wait --load networkidle`). the vocabulary belongs to the CLI, and the pinned version is the contract.
 
-a few typed tools cover only what the generic path can't express safely: opening a URL with a named persistent profile, filling a secret from an environment variable without exposing its value, and capturing screenshots into an extension-owned temporary store.
+a few typed tools exist for the things the generic path can't do safely: opening a URL with a named persistent profile, filling a secret from an environment variable without exposing its value, and capturing screenshots into a temporary store owned by the extension.
 
-the boundary stays lean: pi manages the conversation, this extension owns session identity and lifecycle, and the agent-browser daemon owns the browser process.
+the boundary is small: pi owns the conversation, this extension owns session identity and lifecycle, and the agent-browser daemon owns the browser process.
 
 ## install
 
 requires node 24+ and pi 0.84+. agent-browser `0.35.1` is a pinned package-local dependency.
 
-install as a local pi package:
+add the package to `~/.pi/agent/settings.json`:
 
+```jsonc
+{
+  "packages": ["git:github.com/chrishiguto/pi-browser"]
+}
 ```
-pi install /path/to/pi-browser
+
+or use a local checkout:
+
+```jsonc
+{
+  "packages": ["/path/to/pi-browser"]
+}
 ```
 
 then, inside pi, install the package-local browser binary once:
@@ -39,7 +49,7 @@ then, inside pi, install the package-local browser binary once:
 
 pi also gets `/browser` for `on`, `off`, `status`, `install [--with-deps]`, and the `headed [on|off]` preference.
 
-the bundled `browser` skill teaches the workflow: open, interact through `browser_run` one command at a time, re-snapshot after navigation or DOM changes, verify the rendered result, close. pass `--help` in args for any command's exact syntax.
+the bundled `browser` skill teaches the workflow: open, run one command at a time through `browser_run`, re-snapshot after navigation or DOM changes, verify the rendered result, close. pass `--help` in args for any command's exact syntax.
 
 login state and secrets:
 
@@ -51,15 +61,15 @@ login state and secrets:
 
 each pi session branch owns exactly one browser session, named deterministically from the working directory and session id, so parallel sessions and worktrees never collide.
 
-the agent-browser daemon keeps the browser alive across pi reloads; the replacement extension reattaches by its deterministic session name. on terminal shutdown the extension closes the owned browser under a deadline and cleans up its artifact store.
+the agent-browser daemon keeps the browser alive across pi reloads, and the replacement extension reattaches by its deterministic session name. on terminal shutdown the extension closes the owned browser under a deadline and cleans up its artifact store.
 
 launches retry with `--no-sandbox` on hosts that block unprivileged user namespaces. `/browser status` reports the session, running mode, pinned and installed package versions, and whether the browser is ready.
 
 ## development
 
-the canonical development source lives in this repository. the entry point is `extensions/browser/index.ts`, declared in the `pi` manifest in `package.json`.
+the entry point is `extensions/browser/index.ts`, declared in the `pi` manifest in `package.json`.
 
-```
+```sh
 npm run typecheck
 npm run test:unit
 npm run test:integration
