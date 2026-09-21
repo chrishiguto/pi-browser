@@ -1,0 +1,8 @@
+# Single-package repository; this file only records the build-script
+# decisions pnpm 11 refuses to make on its own. esbuild's postinstall
+# fetches its native binary for tsx; the other two only need their
+# published JavaScript.
+allowBuilds:
+  "@google/genai": false
+  esbuild: true
+  protobufjs: false

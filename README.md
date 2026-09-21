@@ -10,24 +10,19 @@ a few typed tools exist for the things the generic path can't do safely: opening
 
 the boundary is small: pi owns the conversation, this extension owns session identity and lifecycle, and the agent-browser daemon owns the browser process.
 
-## workspace setup
+## install
 
-requires node 24+ and pi 0.84+. agent-browser `0.37.1` and chromium come from the locked nix tools profile. the extension and your terminal both invoke `agent-browser` from `PATH`; nix owns installation and updates.
-
-install the workspace dependencies from the dotfiles checkout root:
+requires node 24+ and pi 0.84+, with `agent-browser` 0.37.1 and a chromium it can launch on `PATH`. the extension performs no cli installation or browser download: provision the supported cli and browser yourself, for example the `agent-browser` package from [numtide/llm-agents.nix](https://github.com/numtide/llm-agents.nix), which bundles chromium, or the npm package followed by its `install` command.
 
 ```sh
-cd pi
-pnpm install --frozen-lockfile
+pi install git:github.com/chrishiguto/pi-browser
 ```
 
-the managed Pi settings load `pi/packages/browser` directly from that checkout. editing the package and reloading Pi therefore uses the current source without a publication or standalone mirror step.
+the source is unpinned, so `pi update --extensions` moves an installation to the current `main`. [chrishiguto/dotfiles](https://github.com/chrishiguto/dotfiles) consumes the package this way and refreshes it on `chezmoi apply`.
 
-apply the dotfiles configuration with `chezmoi apply` to provision the tools profile, then check `agent-browser --version` in your terminal and `/browser status` in pi. the tools profile's `bin` directory must be on pi's `PATH`.
+check `agent-browser --version` in your terminal and `/browser status` in pi. missing or incompatible executables produce a setup message. after repairing `PATH`, retry the operation without reloading pi.
 
-missing or incompatible executables produce a setup message. after repairing the profile, retry the operation without reloading pi. the extension performs no automatic cli installation or browser download. outside this dotfiles environment, provision the supported cli and a working browser yourself.
-
-`/browser status` checks cli compatibility without launching a browser. a successful `browser_open` verifies chromium launch. upstream `doctor` checks downloaded chrome caches and can report a missing browser even when the nix-provided chromium works.
+`/browser status` checks cli compatibility without launching a browser. a successful `browser_open` verifies chromium launch. upstream `doctor` checks downloaded chrome caches and can report a missing browser even when a system-provided chromium works.
 
 ## use
 
@@ -63,9 +58,12 @@ launches retry with `--no-sandbox` on hosts that block unprivileged user namespa
 the entry point is `extensions/browser/index.ts`, declared in the `pi` manifest in `package.json`.
 
 ```sh
+pnpm install --frozen-lockfile
+pnpm run check   # typecheck plus every suite
 pnpm run typecheck
 pnpm run test:unit
 pnpm run test:integration
 pnpm run test:smoke
-pnpm test
 ```
+
+the integration and smoke suites need `agent-browser` and `pi` on `PATH`.
