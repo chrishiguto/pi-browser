@@ -62,4 +62,4 @@ pnpm install --frozen-lockfile
 pnpm run check
 ```
 
-`check` is the typecheck plus every suite; `pnpm run test:unit`, `test:integration`, and `test:smoke` run one at a time. the integration and smoke suites need `agent-browser` and `pi` on `PATH`. ci runs the same check on every push to `main` and every pull request, fetching both from the llm-agents.nix revision pinned in `.github/workflows/ci.yml`.
+`check` is the typecheck plus every suite; `pnpm run test:unit`, `test:integration`, and `test:smoke` run one at a time. the integration and smoke suites need `agent-browser` and `pi` on `PATH`. ci runs the same suites as separate bounded steps on every push to `main` and every pull request, fetching both from the llm-agents.nix revision pinned in `.github/workflows/ci.yml`.

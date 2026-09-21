@@ -12,8 +12,9 @@ permissions:
   contents: read
 
 env:
-  # The llm-agents.nix revision that ships agent-browser 0.37.1, the version
-  # the engine validates. Bump it together with AGENT_BROWSER_VERSION.
+  # The llm-agents.nix revision that ships the agent-browser version the
+  # engine validates. Bump it together with AGENT_BROWSER_VERSION in
+  # src/agent-browser.ts.
   LLM_AGENTS: github:numtide/llm-agents.nix/e58be6a4ee2ec223cfd8d9b323845aa8e60d2e2e
 
 jobs:
@@ -52,6 +53,9 @@ jobs:
             extra-trusted-public-keys = niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g=
       - name: Fetch the browser cli with its chromium, and pi
         timeout-minutes: 10
+        # explicit bash adds pipefail, so a failed fetch fails here rather
+        # than as "command not found" in the probe step
+        shell: bash
         run: nix build --no-link --print-out-paths "$LLM_AGENTS#agent-browser" "$LLM_AGENTS#pi" | sed 's|$|/bin|' >> "$GITHUB_PATH"
       - name: Probe the browser cli and pi
         timeout-minutes: 2
