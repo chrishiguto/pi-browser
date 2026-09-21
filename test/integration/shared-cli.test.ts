@@ -11,7 +11,6 @@ import { nodeExecutorForEnv } from "../helpers/node-executor.ts";
 test("terminal and Pi share the nix browser without downloaded browser assets", { timeout: 60_000 }, async (t) => {
   const home = await mkdtemp(join(tmpdir(), "pi-browser-clean-home-"));
   const fixture = await startFixture();
-  t.after(() => fixture.close());
   const exec = nodeExecutorForEnv({
     ...process.env,
     HOME: home,
@@ -24,17 +23,21 @@ test("terminal and Pi share the nix browser without downloaded browser assets", 
   const terminalSession = `terminal-${process.pid}`;
   const piSession = `pi-clean-${process.pid}`;
   const engine = new AgentBrowserEngine(exec, undefined, ["--no-sandbox"]);
+  // Browsers close before the fixture server: a page still open against the
+  // server can keep its connection alive and hold server.close() open.
+  // Every cleanup call is bounded so a stalled cli cannot hold the suite.
   t.after(async () => {
     try {
       const closed = await exec("agent-browser", ["--session", terminalSession, "close"], { timeout: 10_000 });
       assert.equal(closed.code, 0, closed.stderr || closed.stdout);
       await engine.close(piSession);
     } finally {
+      await fixture.close();
       await rm(home, { recursive: true, force: true });
     }
   });
 
-  const version = await exec("agent-browser", ["--version"]);
+  const version = await exec("agent-browser", ["--version"], { timeout: 10_000 });
   assert.equal(version.stdout.trim(), `agent-browser ${AGENT_BROWSER_VERSION}`);
   const terminal = await exec("agent-browser", ["--session", terminalSession, "--args", "--no-sandbox", "--json", "open", fixture.url], { timeout: 30_000 });
   assert.equal(terminal.code, 0, terminal.stderr || terminal.stdout);

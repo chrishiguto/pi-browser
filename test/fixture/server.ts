@@ -82,7 +82,11 @@ export interface AuthFixtureServer extends FixtureServer {
   origin: string;
 }
 
+// A browser that still has the page open keeps its keep-alive connection, and
+// server.close() waits for every connection to end; drop them first so a test
+// that closes its browser late cannot stall on the fixture.
 function closeServer(server: Server): Promise<void> {
+  server.closeAllConnections();
   return new Promise((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
   });
