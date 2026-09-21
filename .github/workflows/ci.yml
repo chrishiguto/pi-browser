@@ -1,0 +1,71 @@
+# The gate that keeps an unpinned git source safe to consume: every push to
+# main and every pull request runs the full check against the same
+# agent-browser and pi binaries a machine gets from numtide/llm-agents.nix.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # The llm-agents.nix revision that ships agent-browser 0.37.1, the version
+  # the engine validates. Bump it together with AGENT_BROWSER_VERSION.
+  LLM_AGENTS: github:numtide/llm-agents.nix/e58be6a4ee2ec223cfd8d9b323845aa8e60d2e2e
+
+jobs:
+  check:
+    name: Typecheck and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # ci must trust the numtide cache, or llm-agents packages fall back
+          # to source builds and exhaust the runner disk
+          extra_nix_config: |
+            extra-substituters = https://cache.numtide.com
+            extra-trusted-public-keys = niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g=
+      - name: Fetch the browser cli with its chromium, and pi
+        timeout-minutes: 10
+        run: |
+          for package in agent-browser pi; do
+            echo "$(nix build --no-link --print-out-paths "$LLM_AGENTS#$package")/bin" >> "$GITHUB_PATH"
+          done
+      - name: Install Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - name: Install dependencies
+        timeout-minutes: 5
+        run: pnpm install --frozen-lockfile
+      # The integration and smoke suites drive real chromium and real pi. Each
+      # suite gets its own bounded step so a stalled process names the suite
+      # in the job summary instead of holding the runner for the job timeout.
+      - name: Probe the browser cli and pi
+        timeout-minutes: 2
+        run: |
+          agent-browser --version
+          pi --version
+      - name: Typecheck and unit-test
+        timeout-minutes: 5
+        run: |
+          pnpm run typecheck
+          pnpm run test:unit
+      - name: Run the integration suite against the fetched chromium
+        timeout-minutes: 8
+        run: pnpm run test:integration
+      - name: Run the smoke suite against the fetched pi
+        timeout-minutes: 5
+        run: pnpm run test:smoke
+      - name: Dump leftover browser and pi processes
+        if: failure()
+        run: ps -eo pid,ppid,etime,stat,cmd | grep -E 'agent-browser|chromium|[ /]pi( |$)' | grep -v grep || true

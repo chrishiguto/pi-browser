@@ -66,4 +66,4 @@ pnpm run test:integration
 pnpm run test:smoke
 ```
 
-the integration and smoke suites need `agent-browser` and `pi` on `PATH`.
+the integration and smoke suites need `agent-browser` and `pi` on `PATH`. ci runs the same check on every push to `main` and every pull request, fetching both from the llm-agents.nix revision pinned in `.github/workflows/ci.yml`.
