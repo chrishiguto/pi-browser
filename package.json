@@ -9,7 +9,8 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/chrishiguto/pi-browser.git"
+    "url": "git+https://github.com/chrishiguto/dotfiles.git",
+    "directory": "pi/packages/browser"
   },
   "files": [
     "extensions/",
@@ -20,14 +21,12 @@
     "node": ">=24"
   },
   "scripts": {
+    "check": "pnpm run typecheck && pnpm test",
     "typecheck": "tsc",
     "test:unit": "node --import tsx --test test/unit/*.test.ts",
     "test:integration": "node --import tsx --test --test-concurrency=1 test/integration/*.test.ts",
     "test:smoke": "node --import tsx --test test/smoke/*.test.ts",
-    "test": "npm run test:unit && npm run test:integration && npm run test:smoke"
-  },
-  "dependencies": {
-    "agent-browser": "0.35.1"
+    "test": "pnpm run test:unit && pnpm run test:integration && pnpm run test:smoke"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.84.0 <1",
@@ -41,9 +40,10 @@
     ]
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.84.3",
-    "@earendil-works/pi-coding-agent": "0.84.3",
-    "@earendil-works/pi-tui": "0.84.3",
+    "@earendil-works/pi-ai": "catalog:",
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "@earendil-works/pi-tui": "catalog:",
+    "@types/node": "24.3.0",
     "tsx": "4.20.5",
     "typebox": "1.0.12",
     "typescript": "5.9.2"

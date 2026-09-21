@@ -8,6 +8,7 @@ import { AgentBrowserEngine } from "../../src/agent-browser.ts";
 import { BrowserController, BrowserProfiles, type BrowserEngine } from "../../src/browser.ts";
 import { browserError } from "../../src/errors.ts";
 import type { EngineRequest, EngineJsonResult } from "../../src/agent-browser.ts";
+import { withCompatibleCli } from "../helpers/compatible-exec.ts";
 
 const ctx = {
   cwd: "/project",
@@ -620,7 +621,7 @@ test("timed-out page command releases the queue", async () => {
 
 test("an engine timeout releases the controller session queue", async () => {
   let nextSnapshotTimesOut = false;
-  const engine = new AgentBrowserEngine(async (_command, args) => {
+  const engine = new AgentBrowserEngine(withCompatibleCli(async (_command, args) => {
     if (args.includes("snapshot") && nextSnapshotTimesOut) {
       nextSnapshotTimesOut = false;
       return { code: null, stdout: "", stderr: "", killed: true };
@@ -628,7 +629,7 @@ test("an engine timeout releases the controller session queue", async () => {
     return args.includes("open")
       ? { code: 0, stdout: JSON.stringify({ success: true, data: { url: "http://localhost:3000", title: "Fixture" } }), stderr: "", killed: false }
       : { code: 0, stdout: JSON.stringify({ success: true, data: { snapshot: "button Continue [ref=e1]" } }), stderr: "", killed: false };
-  });
+  }));
   const browser = new BrowserController(engine);
   await browser.open({ url: "http://localhost:3000" }, undefined, ctx);
   nextSnapshotTimesOut = true;

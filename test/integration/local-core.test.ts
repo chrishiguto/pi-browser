@@ -6,10 +6,10 @@ import { BrowserController } from "../../src/browser.ts";
 import { startFixture } from "../fixture/server.ts";
 import { nodeExecutor } from "../helpers/node-executor.ts";
 
-test("real package-local browser opens, snapshots, contains, and closes", { timeout: 60_000 }, async (t) => {
+test("real shared browser opens, snapshots, contains, and closes", { timeout: 60_000 }, async (t) => {
   const fixture = await startFixture();
   t.after(() => fixture.close());
-  const engine = new AgentBrowserEngine(nodeExecutor, undefined, undefined, ["--no-sandbox"]);
+  const engine = new AgentBrowserEngine(nodeExecutor, undefined, ["--no-sandbox"]);
   const browser = new BrowserController(engine);
   const ctx = {
     cwd: process.cwd(),

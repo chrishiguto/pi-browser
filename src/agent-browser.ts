@@ -1,16 +1,12 @@
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { BrowserError, browserError } from "./errors.ts";
 
-import { browserError } from "./errors.ts";
-
-export const AGENT_BROWSER_VERSION = "0.35.1";
+export const AGENT_BROWSER_VERSION = "0.37.1";
+export const BROWSER_SETUP = "Run chezmoi apply to provision the nix tools profile (agent-browser and chromium), ensure its bin directory is on PATH, then retry /browser status.";
 const DIAGNOSTIC_TIMEOUT_MS = 10_000;
 const LAUNCH_TIMEOUT_MS = 60_000;
 const COMMAND_TIMEOUT_MS = 30_000;
 const WAIT_TIMEOUT_MS = 35_000;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
-const INSTALL_TIMEOUT_MS = 15 * 60_000;
 const MAX_DIAGNOSTIC_CHARS = 64 * 1_024;
 
 export interface ExecOptions {
@@ -35,7 +31,6 @@ export type PiExecutor = (
 export interface EngineJsonResult {
   success: boolean;
   data?: unknown;
-  checks?: Array<{ id?: string; status?: string; message?: string }>;
   [key: string]: unknown;
 }
 
@@ -50,18 +45,10 @@ export interface EngineRequest {
   responseFormat?: "json" | "text";
 }
 
-export interface InstallResult {
-  output: string;
-}
-
 interface ExecuteContext {
   operation: string;
   browserStateUncertain?: boolean;
   allowNonzeroJson?: boolean;
-}
-
-function defaultLauncherPath(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "node_modules", "agent-browser", "bin", "agent-browser.js");
 }
 
 function diagnosticText(result: ExecResult): string {
@@ -86,10 +73,10 @@ function parseJson(stdout: string, operation: string): EngineJsonResult {
   try {
     parsed = JSON.parse(stdout.trim());
   } catch {
-    throw browserError("browser_protocol_error", `${operation} returned malformed JSON; run package-local doctor and verify version ${AGENT_BROWSER_VERSION}`);
+    throw browserError("browser_protocol_error", `${operation} returned malformed JSON; run /browser status and verify version ${AGENT_BROWSER_VERSION}`);
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || typeof (parsed as { success?: unknown }).success !== "boolean") {
-    throw browserError("browser_protocol_error", `${operation} returned an invalid JSON result; run package-local doctor and verify version ${AGENT_BROWSER_VERSION}`);
+    throw browserError("browser_protocol_error", `${operation} returned an invalid JSON result; run /browser status and verify version ${AGENT_BROWSER_VERSION}`);
   }
   return parsed as EngineJsonResult;
 }
@@ -142,38 +129,41 @@ export class AgentBrowserEngine {
 
   constructor(
     private readonly exec: PiExecutor,
-    readonly launcherPath = defaultLauncherPath(),
-    private readonly runtimeExecutable = process.execPath,
+    readonly executable = "agent-browser",
     private readonly browserLaunchArgs: readonly string[] = [],
   ) {}
 
-  private invocation(args: string[]): [string, string[]] {
-    const runtimeName = this.runtimeExecutable.split(/[\\/]/).at(-1)?.toLowerCase();
-    if (runtimeName === "node" || runtimeName === "node.exe" || runtimeName === "nodejs") {
-      return [this.runtimeExecutable, [this.launcherPath, ...args]];
+  /**
+   * Gate every browser request so provisioning repairs and profile upgrades
+   * need no Pi reload. This is the one owner of the provisioning hint: the
+   * probe failing to run means the CLI is missing or broken on PATH, whatever
+   * shape the executor reports that in (pi's exec resolves spawn failures as
+   * exit code 1 with empty output rather than rejecting).
+   */
+  async checkCompatibility(signal?: AbortSignal): Promise<string> {
+    let version: string;
+    try {
+      version = await this.version(signal);
+    } catch (error) {
+      if (error instanceof BrowserError && error.code === "browser_upstream_error") {
+        throw browserError(error.code, `${BROWSER_SETUP} ${error.detail}`);
+      }
+      throw error;
     }
-    return [this.launcherPath, args];
-  }
-
-  private assertLauncher(): void {
-    if (!existsSync(this.launcherPath)) {
-      throw browserError(
-        "browser_upstream_error",
-        "package-local agent-browser launcher is missing; run npm ci in the extension directory, then /browser status",
-      );
+    if (version !== AGENT_BROWSER_VERSION) {
+      throw browserError("browser_upstream_error", `agent-browser ${version} is incompatible; expected ${AGENT_BROWSER_VERSION}. ${BROWSER_SETUP}`);
     }
+    return version;
   }
 
   private async execute(args: string[], options: ExecOptions, context: ExecuteContext): Promise<ExecResult> {
-    this.assertLauncher();
     if (options.signal?.aborted) {
       throw cancelledError(context);
     }
 
     let result: ExecResult;
     try {
-      const [command, commandArgs] = this.invocation(args);
-      result = await this.exec(command, commandArgs, options);
+      result = await this.exec(this.executable, args, options);
     } catch (error) {
       if (options.signal?.aborted) {
         throw cancelledError(context);
@@ -186,7 +176,7 @@ export class AgentBrowserEngine {
       const uncertainty = context.browserStateUncertain
         ? "browser-side completion is unknown. Snapshot before the next ref action; "
         : "";
-      throw browserError("browser_timeout", `${context.operation} timed out; ${uncertainty}run package-local doctor if the timeout repeats`);
+      throw browserError("browser_timeout", `${context.operation} timed out; ${uncertainty}run /browser status if the timeout repeats`);
     }
     result = { ...result, stderr: result.stderr.slice(0, MAX_DIAGNOSTIC_CHARS) };
     if (result.code !== 0 && (!context.allowNonzeroJson || !isProtocolJsonResult(result.stdout))) {
@@ -197,9 +187,9 @@ export class AgentBrowserEngine {
 
   async version(signal?: AbortSignal): Promise<string> {
     const result = await this.execute(["--version"], { signal, timeout: DIAGNOSTIC_TIMEOUT_MS }, { operation: "version" });
-    const match = result.stdout.trim().match(/(?:agent-browser\s+)?(\d+\.\d+\.\d+)/);
+    const match = result.stdout.trim().match(/^(?:agent-browser\s+)?(\d+\.\d+\.\d+)$/);
     if (!match) {
-      throw browserError("browser_protocol_error", "agent-browser returned an invalid version response; run package-local doctor");
+      throw browserError("browser_protocol_error", "agent-browser returned an invalid version response; run /browser status");
     }
     return match[1];
   }
@@ -211,6 +201,9 @@ export class AgentBrowserEngine {
   }
 
   async run(request: EngineRequest, signal?: AbortSignal): Promise<EngineJsonResult> {
+    const context: ExecuteContext = { operation: request.command, browserStateUncertain: true, allowNonzeroJson: true };
+    if (signal?.aborted) throw cancelledError(context);
+    await this.checkCompatibility(signal);
     const execute = () => {
       const globals = [
         "--session", request.session,
@@ -226,12 +219,12 @@ export class AgentBrowserEngine {
         signal,
         timeout: browserRequestTimeout(request),
         cwd: request.cwd,
-      }, { operation: request.command, browserStateUncertain: true, allowNonzeroJson: true });
+      }, context);
     };
     let result = await execute();
     if (request.responseFormat === "text") {
       if (result.code !== 0) {
-        throw browserError("browser_upstream_error", `${request.command} help failed; run package-local doctor if the failure repeats`);
+        throw browserError("browser_upstream_error", `${request.command} help failed; run /browser status if the failure repeats`);
       }
       return { success: true, data: result.stdout };
     }
@@ -243,6 +236,10 @@ export class AgentBrowserEngine {
     return parseJsonResult(result.stdout, request.command);
   }
 
+  // Close is not gated: it only runs for sessions this engine already drove
+  // through a compatible CLI, and it sits on the shutdown deadline. A bare
+  // close never launches upstream (`close` skips the daemon's auto-launch),
+  // whereas passing --args would send an explicit launch first.
   async close(session: string, signal?: AbortSignal, cwd?: string): Promise<void> {
     const result = await this.execute(["--session", session, "--json", "close"], {
       signal,
@@ -251,32 +248,4 @@ export class AgentBrowserEngine {
     }, { operation: "close", browserStateUncertain: true, allowNonzeroJson: true });
     parseJsonResult(result.stdout, "close");
   }
-
-  async doctor(signal?: AbortSignal): Promise<EngineJsonResult> {
-    const result = await this.execute(["doctor", "--offline", "--quick", "--json"], {
-      signal,
-      timeout: DIAGNOSTIC_TIMEOUT_MS,
-    }, { operation: "doctor", allowNonzeroJson: true });
-    return parseJson(result.stdout, "doctor");
-  }
-
-  async install(signal?: AbortSignal, withDeps = false): Promise<InstallResult> {
-    const result = await this.execute(["install", ...(withDeps ? ["--with-deps"] : [])], {
-      signal,
-      timeout: INSTALL_TIMEOUT_MS,
-    }, { operation: "install" });
-    return { output: (result.stdout.trim() || "Browser installation completed").slice(0, 4_096) };
-  }
-}
-
-export function browserInstalled(result: EngineJsonResult): boolean | undefined {
-  const data = result.data;
-  if (data && typeof data === "object" && !Array.isArray(data)) {
-    const installed = (data as { browserInstalled?: unknown }).browserInstalled;
-    if (typeof installed === "boolean") return installed;
-  }
-  const check = result.checks?.find((entry) => entry && typeof entry === "object" && entry.id === "chrome.installed");
-  if (check?.status === "pass") return true;
-  if (check?.status === "fail") return false;
-  return undefined;
 }

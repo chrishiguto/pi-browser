@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { AgentBrowserEngine, AGENT_BROWSER_VERSION, browserInstalled } from "../../src/agent-browser.ts";
+import { AgentBrowserEngine, AGENT_BROWSER_VERSION, BROWSER_SETUP } from "../../src/agent-browser.ts";
 import { ArtifactStore } from "../../src/artifacts.ts";
 import { BrowserController, BrowserProfiles, type BrowserEngine } from "../../src/browser.ts";
 import { browserError } from "../../src/errors.ts";
@@ -17,7 +17,6 @@ const USAGE = `Usage:
 /browser on
 /browser off
 /browser status
-/browser install [--with-deps]
 /browser headed [on|off]`;
 
 export interface BrowserExtensionOptions {
@@ -131,19 +130,16 @@ function registerBrowserCommand(
           `running mode: ${owned.runningMode}`,
           ...(owned.profile ? [`profile: ${owned.profile}`] : []),
           `artifact root: ${artifacts.root}`,
-          `pinned package: ${AGENT_BROWSER_VERSION}`,
-          `launcher: ${engine.launcherPath}`,
+          `supported cli: ${AGENT_BROWSER_VERSION}`,
+          `executable: ${engine.executable}`,
         ];
         try {
-          const version = await engine.version(ctx.signal);
-          lines.push(version === AGENT_BROWSER_VERSION
-            ? `package: ${version}`
-            : `package: ${version} (expected ${AGENT_BROWSER_VERSION}; run npm ci in the extension directory)`);
-          const installed = browserInstalled(await engine.doctor(ctx.signal));
-          lines.push(`browser: ${installed === false ? "not ready; run /browser install" : (owned.isOpen ? "open" : "closed")}`);
+          const version = await engine.checkCompatibility(ctx.signal);
+          lines.push(`cli: ${version}`);
+          lines.push(`browser: ${owned.isOpen ? "open" : "closed"}`);
           ctx.ui.notify(lines.join("\n"), "info");
         } catch (error) {
-          lines.push(`diagnostics failed: ${String(error)}`, "run npm ci in the extension directory if the package is missing, then retry /browser status");
+          lines.push(`diagnostics failed: ${String(error)}`, BROWSER_SETUP);
           ctx.ui.notify(lines.join("\n"), "warning");
         }
         return;
@@ -164,22 +160,6 @@ function registerBrowserCommand(
           ctx.ui.notify(`Headed preference: ${state.headed ? "on" : "off"}; running mode: ${owned.runningMode}.`, "info");
           return;
         }
-      }
-
-      const isInstall = args[0] === "install" && (args.length === 1 || (args.length === 2 && args[1] === "--with-deps"));
-      if (isInstall) {
-        ctx.ui.notify("Installing package-local browser…", "info");
-        const progressTimer = setInterval(() => ctx.ui.notify("Package-local browser installation is still running…", "info"), 15_000);
-        progressTimer.unref();
-        try {
-          const result = await engine.install(ctx.signal, args[1] === "--with-deps");
-          ctx.ui.notify(result.output, "info");
-        } catch (error) {
-          ctx.ui.notify(`${String(error)}\nRun /browser status; if the failure repeats, run package-local agent-browser doctor --offline --quick --json.`, "error");
-        } finally {
-          clearInterval(progressTimer);
-        }
-        return;
       }
 
       ctx.ui.notify(USAGE, "warning");

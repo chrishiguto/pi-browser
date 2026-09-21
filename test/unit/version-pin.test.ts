@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { test } from "node:test";
 
 import { AGENT_BROWSER_VERSION } from "../../src/agent-browser.ts";
@@ -9,32 +9,20 @@ interface PackageManifest {
   scripts?: Record<string, string>;
 }
 
-interface PackageLock {
-  packages?: Record<string, {
-    dependencies?: Record<string, string>;
-    version?: string;
-    resolved?: string;
-  }>;
-}
-
-test("agent-browser is exactly pinned in the manifest and lockfile", async () => {
+test("agent-browser is supplied externally without an npm runtime dependency", async () => {
   const manifest = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as PackageManifest;
-  const lock = JSON.parse(await readFile(new URL("../../package-lock.json", import.meta.url), "utf8")) as PackageLock;
   const manifestPin = manifest.dependencies?.["agent-browser"];
 
-  assert.equal(manifestPin, "0.35.1");
-  assert.equal(AGENT_BROWSER_VERSION, manifestPin);
-  assert.equal(lock.packages?.[""]?.dependencies?.["agent-browser"], manifestPin);
-  assert.equal(lock.packages?.["node_modules/agent-browser"]?.version, manifestPin);
-  const escapedPin = manifestPin!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  assert.match(lock.packages?.["node_modules/agent-browser"]?.resolved ?? "", new RegExp(`agent-browser-${escapedPin}\\.tgz$`));
+  assert.equal(manifestPin, undefined);
+  assert.equal(AGENT_BROWSER_VERSION, "0.37.1");
+  await assert.rejects(access(new URL("../../package-lock.json", import.meta.url)));
 });
 
 test("the normal test command retains every suite gate", async () => {
   const manifest = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as PackageManifest;
 
   const suiteCommands = new Set(manifest.scripts?.test?.split(/\s*&&\s*/u));
-  for (const requiredSuite of ["npm run test:unit", "npm run test:integration", "npm run test:smoke"]) {
+  for (const requiredSuite of ["pnpm run test:unit", "pnpm run test:integration", "pnpm run test:smoke"]) {
     assert.ok(suiteCommands.has(requiredSuite), `normal test command must include ${requiredSuite}`);
   }
 });

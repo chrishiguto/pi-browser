@@ -4,8 +4,8 @@ import type { PiExecutor } from "../../src/agent-browser.ts";
 
 // Test stand-in for pi.exec: spawn without a shell, capture output, honor
 // timeout and abort by terminating the child.
-export const nodeExecutor: PiExecutor = (command, args, options = {}) => new Promise((resolve) => {
-  const child = spawn(command, args, { cwd: options.cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+export const nodeExecutorForEnv = (env: NodeJS.ProcessEnv): PiExecutor => (command, args, options = {}) => new Promise((resolve) => {
+  const child = spawn(command, args, { cwd: options.cwd, env, shell: false, stdio: ["ignore", "pipe", "pipe"] });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   let killed = false;
@@ -45,3 +45,5 @@ export const nodeExecutor: PiExecutor = (command, args, options = {}) => new Pro
   });
   child.once("close", finish);
 });
+
+export const nodeExecutor = nodeExecutorForEnv(process.env);

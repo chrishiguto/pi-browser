@@ -10,31 +10,24 @@ a few typed tools exist for the things the generic path can't do safely: opening
 
 the boundary is small: pi owns the conversation, this extension owns session identity and lifecycle, and the agent-browser daemon owns the browser process.
 
-## install
+## workspace setup
 
-requires node 24+ and pi 0.84+. agent-browser `0.35.1` is a pinned package-local dependency.
+requires node 24+ and pi 0.84+. agent-browser `0.37.1` and chromium come from the locked nix tools profile. the extension and your terminal both invoke `agent-browser` from `PATH`; nix owns installation and updates.
 
-add the package to `~/.pi/agent/settings.json`:
+install the workspace dependencies from the dotfiles checkout root:
 
-```jsonc
-{
-  "packages": ["git:github.com/chrishiguto/pi-browser"]
-}
+```sh
+cd pi
+pnpm install --frozen-lockfile
 ```
 
-or use a local checkout:
+the managed Pi settings load `pi/packages/browser` directly from that checkout. editing the package and reloading Pi therefore uses the current source without a publication or standalone mirror step.
 
-```jsonc
-{
-  "packages": ["/path/to/pi-browser"]
-}
-```
+apply the dotfiles configuration with `chezmoi apply` to provision the tools profile, then check `agent-browser --version` in your terminal and `/browser status` in pi. the tools profile's `bin` directory must be on pi's `PATH`.
 
-then, inside pi, install the package-local browser binary once:
+missing or incompatible executables produce a setup message. after repairing the profile, retry the operation without reloading pi. the extension performs no automatic cli installation or browser download. outside this dotfiles environment, provision the supported cli and a working browser yourself.
 
-```
-/browser install [--with-deps]
-```
+`/browser status` checks cli compatibility without launching a browser. a successful `browser_open` verifies chromium launch. upstream `doctor` checks downloaded chrome caches and can report a missing browser even when the nix-provided chromium works.
 
 ## use
 
@@ -47,7 +40,7 @@ then, inside pi, install the package-local browser binary once:
 | `browser_screenshot` | capture a screenshot into the extension-owned temporary artifact store |
 | `browser_close` | close the owned browser while keeping the tools enabled |
 
-pi also gets `/browser` for `on`, `off`, `status`, `install [--with-deps]`, and the `headed [on|off]` preference.
+pi also gets `/browser` for `on`, `off`, `status`, and the `headed [on|off]` preference.
 
 the bundled `browser` skill teaches the workflow: open, run one command at a time through `browser_run`, re-snapshot after navigation or DOM changes, verify the rendered result, close. pass `--help` in args for any command's exact syntax.
 
@@ -63,16 +56,16 @@ each pi session branch owns exactly one browser session, named deterministically
 
 the agent-browser daemon keeps the browser alive across pi reloads, and the replacement extension reattaches by its deterministic session name. on terminal shutdown the extension closes the owned browser under a deadline and cleans up its artifact store.
 
-launches retry with `--no-sandbox` on hosts that block unprivileged user namespaces. `/browser status` reports the session, running mode, pinned and installed package versions, and whether the browser is ready.
+launches retry with `--no-sandbox` on hosts that block unprivileged user namespaces. `/browser status` reports the session, running mode, supported and installed cli versions, and whether this session has launched a browser.
 
 ## development
 
 the entry point is `extensions/browser/index.ts`, declared in the `pi` manifest in `package.json`.
 
 ```sh
-npm run typecheck
-npm run test:unit
-npm run test:integration
-npm run test:smoke
-npm test
+pnpm run typecheck
+pnpm run test:unit
+pnpm run test:integration
+pnpm run test:smoke
+pnpm test
 ```

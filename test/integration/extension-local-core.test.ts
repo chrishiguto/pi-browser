@@ -13,10 +13,7 @@ import { startFixture } from "../fixture/server.ts";
 import { nodeExecutor } from "../helpers/node-executor.ts";
 
 const noSandboxExecutor: PiExecutor = (command, args, options) => {
-  const launcher = args[0]?.endsWith("/agent-browser.js") ? args[0] : undefined;
-  return launcher
-    ? nodeExecutor(command, [launcher, "--args", "--no-sandbox", ...args.slice(1)], options)
-    : nodeExecutor(command, ["--args", "--no-sandbox", ...args], options);
+  return nodeExecutor(command, ["--args", "--no-sandbox", ...args], options);
 };
 
 test("registered tools complete the real local core loop", { timeout: 60_000 }, async (t) => {

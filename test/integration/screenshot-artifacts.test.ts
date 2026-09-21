@@ -14,7 +14,7 @@ test("real browser captures unique owned PNG screenshots", { timeout: 60_000 }, 
   const baseRoot = await mkdtemp(join(tmpdir(), "pi-browser-screenshot-test-"));
   const fixture = await startFixture();
   const artifacts = new ArtifactStore({ baseRoot });
-  const engine = new AgentBrowserEngine(nodeExecutor, undefined, process.execPath, ["--no-sandbox"]);
+  const engine = new AgentBrowserEngine(nodeExecutor, undefined, ["--no-sandbox"]);
   const browser = new BrowserController(engine, undefined, artifacts);
   const ctx = {
     cwd: process.cwd(),

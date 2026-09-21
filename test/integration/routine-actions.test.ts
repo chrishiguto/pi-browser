@@ -10,7 +10,7 @@ const snapshot = { command: "snapshot", args: ["-i", "-c"] };
 
 test("real browser completes routine commands and wait variants", { timeout: 60_000 }, async (t) => {
   const fixture = await startFixture();
-  const engine = new AgentBrowserEngine(nodeExecutor, undefined, process.execPath, ["--no-sandbox"]);
+  const engine = new AgentBrowserEngine(nodeExecutor, undefined, ["--no-sandbox"]);
   const browser = new BrowserController(engine);
   const ctx = {
     cwd: process.cwd(),
@@ -79,7 +79,7 @@ test("real browser completes routine commands and wait variants", { timeout: 60_
 
 test("real stale ref requires a fresh snapshot and new ref", { timeout: 60_000 }, async (t) => {
   const fixture = await startFixture();
-  const engine = new AgentBrowserEngine(nodeExecutor, undefined, process.execPath, ["--no-sandbox"]);
+  const engine = new AgentBrowserEngine(nodeExecutor, undefined, ["--no-sandbox"]);
   const browser = new BrowserController(engine);
   const ctx = {
     cwd: process.cwd(),

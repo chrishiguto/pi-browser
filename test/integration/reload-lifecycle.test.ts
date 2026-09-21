@@ -61,7 +61,7 @@ function load(engine: BrowserEngine, artifacts: ArtifactStore, branch: unknown[]
 test("real daemon preserves page state across reload and closes on quit", { timeout: 60_000 }, async (t) => {
   const fixture = await startFixture();
   const baseRoot = await mkdtemp(join(tmpdir(), "pi-browser-real-reload-test-"));
-  const engine = new RecordingEngine(new AgentBrowserEngine(nodeExecutor, undefined, process.execPath, ["--no-sandbox"]));
+  const engine = new RecordingEngine(new AgentBrowserEngine(nodeExecutor, undefined, ["--no-sandbox"]));
   const session = physicalSessionName(process.cwd(), `real-reload-${process.pid}`);
   t.after(async () => {
     await engine.close(session).catch(() => undefined);

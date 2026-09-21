@@ -86,10 +86,10 @@ test("generic result formatting preserves arbitrary upstream data", () => {
 test("generic result formatting retains successful top-level payload fields", () => {
   const text = formatCommandResult({
     success: true,
-    checks: [{ id: "chrome.installed", status: "pass" }],
+    warnings: [{ id: "slow-network", message: "page took 4s" }],
   });
 
   assert.deepEqual(JSON.parse(text), {
-    checks: [{ id: "chrome.installed", status: "pass" }],
+    warnings: [{ id: "slow-network", message: "page took 4s" }],
   });
 });

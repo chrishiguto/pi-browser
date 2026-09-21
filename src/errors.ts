@@ -13,12 +13,15 @@ function sanitize(message: string): string {
 
 export class BrowserError extends Error {
   readonly code: BrowserErrorCode;
+  /** The bounded message without the code prefix, for callers that re-wrap with more context. */
+  readonly detail: string;
 
   constructor(code: BrowserErrorCode, message: string) {
     const bounded = sanitize(message);
     super(`${code}: ${bounded}`);
     this.name = "BrowserError";
     this.code = code;
+    this.detail = bounded;
   }
 }
 

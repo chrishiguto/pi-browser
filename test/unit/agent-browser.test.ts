@@ -4,11 +4,15 @@ import { test } from "node:test";
 import {
   AgentBrowserEngine,
   AGENT_BROWSER_VERSION,
-  browserInstalled,
   type PiExecutor,
 } from "../../src/agent-browser.ts";
+import { withCompatibleCli } from "../helpers/compatible-exec.ts";
 
-test("adapter invokes only the extension-owned launcher", async () => {
+function compatibleEngine(exec: PiExecutor): AgentBrowserEngine {
+  return new AgentBrowserEngine(withCompatibleCli(exec));
+}
+
+test("adapter invokes the shared executable directly", async () => {
   const calls: Parameters<PiExecutor>[] = [];
   const exec: PiExecutor = async (...args) => {
     calls.push(args);
@@ -20,112 +24,9 @@ test("adapter invokes only the extension-owned launcher", async () => {
 
   assert.equal(version, AGENT_BROWSER_VERSION);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0][0], process.execPath);
-  assert.match(calls[0][1][0], /node_modules\/agent-browser\/bin\/agent-browser\.js$/);
-  assert.deepEqual(calls[0][1].slice(1), ["--version"]);
+  assert.equal(calls[0][0], "agent-browser");
+  assert.deepEqual(calls[0][1], ["--version"]);
   assert.equal(calls[0][2]?.timeout, 10_000);
-});
-
-test("doctor parses one bounded JSON result", async () => {
-  let observedArgs: string[] = [];
-  const exec: PiExecutor = async (_command, args) => {
-    observedArgs = args;
-    return {
-      code: 0,
-      stdout: JSON.stringify({ success: true, data: { browserInstalled: true } }),
-      stderr: "",
-      killed: false,
-    };
-  };
-  const engine = new AgentBrowserEngine(exec);
-
-  const result = await engine.doctor();
-
-  assert.equal(result.success, true);
-  assert.deepEqual(result.data, { browserInstalled: true });
-  assert.deepEqual(observedArgs.slice(1), ["doctor", "--offline", "--quick", "--json"]);
-});
-
-test("doctor accepts a pinned-style nonzero failed diagnostic envelope", async () => {
-  const response = {
-    success: false,
-    checks: [{ id: "chrome.installed", status: "fail", message: "Chrome is not installed" }],
-    summary: { fail: 1, pass: 6, warn: 0 },
-  };
-  const engine = new AgentBrowserEngine(async () => ({
-    code: 1,
-    stdout: JSON.stringify(response),
-    stderr: "",
-    killed: false,
-  }));
-
-  const result = await engine.doctor();
-
-  assert.deepEqual(result, response);
-  assert.equal(browserInstalled(result), false);
-});
-
-test("doctor evidence distinguishes installed, missing, and unknown shapes", () => {
-  assert.equal(browserInstalled({ success: true, data: { browserInstalled: true } }), true);
-  assert.equal(browserInstalled({ success: true, data: { browserInstalled: false } }), false);
-  assert.equal(browserInstalled({ success: true, checks: [{ id: "chrome.installed", status: "pass" }] }), true);
-  assert.equal(browserInstalled({ success: false, checks: [{ id: "chrome.installed", status: "fail" }] }), false);
-  assert.equal(browserInstalled({ success: true }), undefined);
-  assert.equal(browserInstalled({ success: true, data: { browserInstalled: "yes" } }), undefined);
-  assert.equal(browserInstalled({ success: true, checks: [{ id: "chrome.installed", status: "warn" }] }), undefined);
-});
-
-test("missing local launcher never falls back to PATH", async () => {
-  let invoked = false;
-  const engine = new AgentBrowserEngine(async () => {
-    invoked = true;
-    throw new Error("must not execute");
-  }, "/definitely/missing/agent-browser.js");
-
-  await assert.rejects(engine.version(), /^BrowserError: browser_upstream_error:/);
-  assert.equal(invoked, false);
-});
-
-test("doctor rejects non-JSON and invalid protocol envelopes", async () => {
-  for (const stdout of [
-    "not JSON",
-    JSON.stringify({ success: "yes" }),
-  ]) {
-    const engine = new AgentBrowserEngine(async () => ({ code: 0, stdout, stderr: "", killed: false }));
-    await assert.rejects(engine.doctor(), /^BrowserError: browser_protocol_error:/);
-  }
-});
-
-test("compiled Pi invokes the package-owned launcher directly", async () => {
-  let observedCommand = "";
-  let observedArgs: string[] = [];
-  const engine = new AgentBrowserEngine(async (command, args) => {
-    observedCommand = command;
-    observedArgs = args;
-    return { code: 0, stdout: "agent-browser 0.35.1", stderr: "", killed: false };
-  }, undefined, "/nix/store/example/libexec/pi/pi");
-
-  await engine.version();
-
-  assert.match(observedCommand, /node_modules\/agent-browser\/bin\/agent-browser\.js$/);
-  assert.deepEqual(observedArgs, ["--version"]);
-});
-
-test("install forwards the signal and exact with-deps option", async () => {
-  const controller = new AbortController();
-  let observedSignal: AbortSignal | undefined;
-  let observedArgs: string[] = [];
-  const engine = new AgentBrowserEngine(async (_command, args, options) => {
-    observedSignal = options?.signal;
-    observedArgs = args;
-    return { code: 0, stdout: "Installed", stderr: "", killed: false };
-  });
-
-  const result = await engine.install(controller.signal, true);
-
-  assert.equal(observedSignal, controller.signal);
-  assert.deepEqual(observedArgs.slice(1), ["install", "--with-deps"]);
-  assert.equal(result.output, "Installed");
 });
 
 test("diagnostic errors are bounded and categorized", async () => {
@@ -174,7 +75,7 @@ test("diagnostic cancellation does not imply a browser-side operation", async ()
 test("browser cancellation reports client interruption and the required ref recovery", async () => {
   const controller = new AbortController();
   controller.abort();
-  const engine = new AgentBrowserEngine(async () => {
+  const engine = compatibleEngine(async () => {
     throw new Error("must not execute");
   });
 
@@ -188,7 +89,7 @@ test("browser cancellation reports client interruption and the required ref reco
 test("browser requests inject every owned global before the action", async () => {
   let observedArgs: string[] = [];
   let observedCwd: string | undefined;
-  const engine = new AgentBrowserEngine(async (_command, args, options) => {
+  const engine = compatibleEngine(async (_command, args, options) => {
     observedArgs = args;
     observedCwd = options?.cwd;
     return {
@@ -209,7 +110,7 @@ test("browser requests inject every owned global before the action", async () =>
 
   assert.equal(result.success, true);
   assert.equal(observedCwd, "/project/runtime-cwd");
-  assert.deepEqual(observedArgs.slice(1), [
+  assert.deepEqual(observedArgs, [
     "--session", "pi-browser-owned",
     "--json",
     "--content-boundaries",
@@ -221,7 +122,7 @@ test("browser requests inject every owned global before the action", async () =>
 
 test("browser execution uses bounded launch, routine, wait, and shutdown timeouts", async () => {
   const timeouts: Array<number | undefined> = [];
-  const engine = new AgentBrowserEngine(async (_command, _args, options) => {
+  const engine = compatibleEngine(async (_command, _args, options) => {
     timeouts.push(options?.timeout);
     return { code: 0, stdout: JSON.stringify({ success: true }), stderr: "", killed: false };
   });
@@ -237,7 +138,7 @@ test("browser execution uses bounded launch, routine, wait, and shutdown timeout
 test("browser requests keep shell metacharacters as literal launcher arguments", async () => {
   let observedCommand = "";
   let observedArgs: string[] = [];
-  const engine = new AgentBrowserEngine(async (command, args) => {
+  const engine = compatibleEngine(async (command, args) => {
     observedCommand = command;
     observedArgs = args;
     return {
@@ -251,14 +152,13 @@ test("browser requests keep shell metacharacters as literal launcher arguments",
 
   await engine.run({ session: "owned", command: "eval", args: literals });
 
-  assert.equal(observedCommand, process.execPath);
-  assert.match(observedArgs[0]!, /node_modules\/agent-browser\/bin\/agent-browser\.js$/);
+  assert.equal(observedCommand, "agent-browser");
   assert.deepEqual(observedArgs.slice(-literals.length - 1), ["eval", ...literals]);
 });
 
 test("browser requests can return bounded plaintext subcommand help", async () => {
   let observedArgs: string[] = [];
-  const engine = new AgentBrowserEngine(async (_command, args) => {
+  const engine = compatibleEngine(async (_command, args) => {
     observedArgs = args;
     return {
       code: 0,
@@ -283,7 +183,7 @@ test("browser requests can return bounded plaintext subcommand help", async () =
 
 test("nonzero subcommand help cannot become a successful plaintext result", async () => {
   const secretArg = "private-help-argument";
-  const engine = new AgentBrowserEngine(async () => ({
+  const engine = compatibleEngine(async () => ({
     code: 2,
     stdout: JSON.stringify({ success: false, error: "help failed" }),
     stderr: `help failed near ${secretArg}`,
@@ -301,7 +201,7 @@ test("nonzero subcommand help cannot become a successful plaintext result", asyn
 });
 
 test("unknown command errors surface the upstream protocol error", async () => {
-  const engine = new AgentBrowserEngine(async () => ({
+  const engine = compatibleEngine(async () => ({
     code: 2,
     stdout: JSON.stringify({ success: false, error: "Unknown command" }),
     stderr: "extra stderr noise",
@@ -316,7 +216,7 @@ test("unknown command errors surface the upstream protocol error", async () => {
 
 test("profile requests map the owned profile flag before the action", async () => {
   let observedArgs: string[] = [];
-  const engine = new AgentBrowserEngine(async (_command, args) => {
+  const engine = compatibleEngine(async (_command, args) => {
     observedArgs = args;
     return {
       code: 0,
@@ -334,7 +234,7 @@ test("profile requests map the owned profile flag before the action", async () =
     profile: "/owned/profiles/staging",
   });
 
-  assert.deepEqual(observedArgs.slice(1), [
+  assert.deepEqual(observedArgs, [
     "--session", "profiled",
     "--json",
     "--content-boundaries",
@@ -346,7 +246,7 @@ test("profile requests map the owned profile flag before the action", async () =
 
 test("open retries once when a closing daemon socket vanishes", async () => {
   let calls = 0;
-  const engine = new AgentBrowserEngine(async () => {
+  const engine = compatibleEngine(async () => {
     calls += 1;
     return calls === 1
       ? {
@@ -370,7 +270,7 @@ test("open retries once when a closing daemon socket vanishes", async () => {
 
 test("close issues a launch-independent command in the owned session", async () => {
   let observedArgs: string[] = [];
-  const engine = new AgentBrowserEngine(async (_command, args) => {
+  const engine = compatibleEngine(async (_command, args) => {
     observedArgs = args;
     return {
       code: 0,
@@ -382,16 +282,16 @@ test("close issues a launch-independent command in the owned session", async () 
 
   await engine.close("pi-browser-owned");
 
-  assert.deepEqual(observedArgs.slice(1), [
+  assert.deepEqual(observedArgs, [
     "--session", "pi-browser-owned", "--json", "close",
   ]);
 });
 
 test("browser request rejects malformed and unsuccessful protocol results", async () => {
-  const malformed = new AgentBrowserEngine(async () => ({ code: 0, stdout: "not-json", stderr: "", killed: false }));
+  const malformed = compatibleEngine(async () => ({ code: 0, stdout: "not-json", stderr: "", killed: false }));
   await assert.rejects(malformed.run({ session: "owned", command: "snapshot", args: [] }), /^BrowserError: browser_protocol_error:/);
 
-  const unsuccessful = new AgentBrowserEngine(async () => ({
+  const unsuccessful = compatibleEngine(async () => ({
     code: 0,
     stdout: JSON.stringify({ success: false, error: "snapshot failed" }),
     stderr: "",
@@ -402,7 +302,7 @@ test("browser request rejects malformed and unsuccessful protocol results", asyn
 
 test("browser requests preserve valid JSON beyond the diagnostic capture bound", async () => {
   const text = "x".repeat(200_000);
-  const engine = new AgentBrowserEngine(async () => ({
+  const engine = compatibleEngine(async () => ({
     code: 0,
     stdout: JSON.stringify({ success: true, data: { snapshot: text } }),
     stderr: "",
@@ -413,23 +313,22 @@ test("browser requests preserve valid JSON beyond the diagnostic capture bound",
   assert.equal((result.data as { snapshot: string }).snapshot.length, text.length);
 });
 
-test("browser requests invoke the package-local launcher without duplicating platform resolution", async () => {
+test("browser requests invoke the shared cli directly", async () => {
   let command = "";
   let args: string[] = [];
-  const engine = new AgentBrowserEngine(async (observedCommand, observedArgs) => {
+  const engine = compatibleEngine(async (observedCommand, observedArgs) => {
     command = observedCommand;
     args = observedArgs;
     return { code: 0, stdout: JSON.stringify({ success: true, data: { snapshot: "ok" } }), stderr: "", killed: false };
   });
 
   await engine.run({ session: "owned", command: "snapshot", args: [] });
-  assert.equal(command, process.execPath);
-  assert.match(args[0] ?? "", /node_modules\/agent-browser\/bin\/agent-browser\.js$/);
-  assert.equal(args[1], "--session");
+  assert.equal(command, "agent-browser");
+  assert.equal(args[0], "--session");
 });
 
 test("nonzero browser JSON errors are parsed without exposing the protocol envelope", async () => {
-  const engine = new AgentBrowserEngine(async () => ({
+  const engine = compatibleEngine(async () => ({
     code: 1,
     stdout: JSON.stringify({
       success: false,
@@ -448,7 +347,7 @@ test("nonzero browser JSON errors are parsed without exposing the protocol envel
 });
 
 test("valid browser JSON failures surface the upstream error verbatim", async () => {
-  const engine = new AgentBrowserEngine(async () => ({
+  const engine = compatibleEngine(async () => ({
     code: 1,
     stdout: JSON.stringify({ success: false, error: "fill #email failed: element is not editable" }),
     stderr: "",
@@ -462,7 +361,7 @@ test("valid browser JSON failures surface the upstream error verbatim", async ()
 });
 
 test("nonzero non-JSON browser failures surface bounded stderr diagnostics", async () => {
-  const engine = new AgentBrowserEngine(async () => ({
+  const engine = compatibleEngine(async () => ({
     code: 1,
     stdout: "",
     stderr: `browser process crashed during launch\n${"x".repeat(100_000)}`,
@@ -479,7 +378,7 @@ test("nonzero non-JSON browser failures surface bounded stderr diagnostics", asy
 test("a sandbox launch failure retries with --no-sandbox and keeps it for later launches", async () => {
   const invocations: string[][] = [];
   let failNextLaunch = true;
-  const engine = new AgentBrowserEngine(async (_command, args) => {
+  const engine = compatibleEngine(async (_command, args) => {
     invocations.push(args);
     if (failNextLaunch) {
       failNextLaunch = false;
@@ -498,16 +397,19 @@ test("a sandbox launch failure retries with --no-sandbox and keeps it for later 
 
   const opened = await engine.run({ session: "owned", command: "open", args: ["https://example.com/"] });
   await engine.run({ session: "owned", command: "snapshot", args: [] });
+  await engine.close("owned");
 
   assert.equal(opened.success, true);
-  assert.equal(invocations.length, 3);
+  assert.equal(invocations.length, 4);
   assert.ok(!invocations[0]!.includes("--args"));
   assert.equal(invocations[1]![invocations[1]!.indexOf("--args") + 1], "--no-sandbox");
   assert.equal(invocations[2]![invocations[2]!.indexOf("--args") + 1], "--no-sandbox");
+  assert.ok(!invocations[3]!.includes("--args"));
+  assert.equal(invocations[3]!.at(-1), "close");
 });
 
 test("browser timeouts identify the requested operation, not the physical session", async () => {
-  const engine = new AgentBrowserEngine(async () => ({
+  const engine = compatibleEngine(async () => ({
     code: null,
     stdout: "",
     stderr: "",

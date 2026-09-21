@@ -9,7 +9,6 @@ export default function noSandboxBrowserExtension(pi: ExtensionAPI): void {
   const engine = new AgentBrowserEngine(
     pi.exec.bind(pi),
     undefined,
-    process.execPath,
     ["--no-sandbox"],
   );
   createBrowserExtension({ engine })(pi);

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import extension, { createBrowserExtension } from "../../extensions/browser/index.ts";
 import { ArtifactStore } from "../../src/artifacts.ts";
+import { withCompatibleCli } from "../helpers/compatible-exec.ts";
 
 const normalFlagApi = {
   registerFlag: () => {},
@@ -95,19 +96,20 @@ function statusHarness(exec: (command: string, args: string[]) => Promise<{ code
   return { commands, notices, status };
 }
 
-test("status reports package and browser readiness", async () => {
+test("status reports cli compatibility without claiming browser readiness", async () => {
   const harness = statusHarness(async (_command, args) => args.at(-1) === "--version"
-    ? { code: 0, stdout: "0.35.1\n", stderr: "", killed: false }
-    : { code: 0, stdout: JSON.stringify({ success: true, data: { browserInstalled: true } }), stderr: "", killed: false });
+    ? { code: 0, stdout: "0.37.1\n", stderr: "", killed: false }
+    : Promise.reject(new Error("status must not launch or inspect a browser")));
 
   await harness.status();
 
   assert.equal(harness.notices.length, 1);
   assert.equal(harness.notices[0].level, "info");
   const message = harness.notices[0].message;
-  assert.match(message, /package: 0\.35\.1/);
-  assert.match(message, /pinned package: 0\.35\.1/);
+  assert.match(message, /cli: 0\.37\.1/);
+  assert.match(message, /supported cli: 0\.37\.1/);
   assert.match(message, /browser: closed/);
+  assert.match(message, /executable: agent-browser$/m);
   assert.match(message, /tools: disabled/);
   assert.match(message, /session: pi-browser-/);
   assert.match(message, /headed preference: off/);
@@ -115,36 +117,17 @@ test("status reports package and browser readiness", async () => {
   assert.match(message, /artifact root: .*pi-browser/);
 });
 
-test("status points a missing browser at /browser install", async () => {
-  const harness = statusHarness(async (_command, args) => args.at(-1) === "--version"
-    ? { code: 0, stdout: "agent-browser 0.35.1\n", stderr: "", killed: false }
-    : {
-        code: 1,
-        stdout: JSON.stringify({
-          success: false,
-          checks: [{ id: "chrome.installed", status: "fail", message: "Chrome is not installed" }],
-        }),
-        stderr: "",
-        killed: false,
-      });
-
-  await harness.status();
-
-  assert.match(harness.notices[0].message, /package: 0\.35\.1/);
-  assert.match(harness.notices[0].message, /browser: not ready; run \/browser install/);
-});
-
-test("status makes a stale package installation actionable", async () => {
+test("status makes an incompatible cli actionable", async () => {
   const harness = statusHarness(async (_command, args) => args.at(-1) === "--version"
     ? { code: 0, stdout: "agent-browser 0.34.0\n", stderr: "", killed: false }
-    : { code: 0, stdout: JSON.stringify({ success: true, data: { browserInstalled: true } }), stderr: "", killed: false });
+    : Promise.reject(new Error("status must not launch or inspect a browser")));
 
   await harness.status();
 
-  assert.match(harness.notices[0].message, /package: 0\.34\.0 \(expected 0\.35\.1; run npm ci/);
+  assert.match(harness.notices[0].message, /agent-browser 0\.34\.0 is incompatible; expected 0\.37\.1/);
 });
 
-test("status retains owned state when package diagnostics fail", async () => {
+test("status retains owned state when cli diagnostics fail", async () => {
   const harness = statusHarness(async () => ({ code: 1, stdout: "", stderr: "missing launcher", killed: false }));
 
   await harness.status();
@@ -156,39 +139,20 @@ test("status retains owned state when package diagnostics fail", async () => {
   assert.match(message, /headed preference: off/);
   assert.match(message, /running mode: closed/);
   assert.match(message, /artifact root: .*pi-browser/);
-  assert.match(message, /pinned package: 0\.35\.1/);
+  assert.match(message, /supported cli: 0\.37\.1/);
   assert.match(message, /diagnostics failed: .*missing launcher/);
-  assert.match(message, /run npm ci.*retry \/browser status/i);
+  assert.match(message, /run chezmoi apply.*retry \/browser status/i);
 });
 
-test("install failures point back to finite package-local diagnostics", async () => {
-  const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
-  const notices: Array<{ message: string; level: string }> = [];
-  const pi = {
-    ...normalFlagApi,
-    registerCommand(name: string, command: { handler: (args: string, ctx: any) => Promise<void> }) {
-      commands.set(name, command);
-    },
-    registerTool: () => {},
-    on: () => {},
-    getActiveTools: () => ["read"],
-    setActiveTools: () => {},
-    appendEntry: () => {},
-    exec: async () => ({ code: 1, stdout: "", stderr: "download failed", killed: false }),
-  } as unknown as ExtensionAPI;
-  extension(pi);
-
-  await commands.get("browser")!.handler("install", {
-    signal: undefined,
-    cwd: "/project",
-    sessionManager: { getSessionId: () => "session" },
-    ui: { notify: (message: string, level: string) => notices.push({ message, level }) },
+test("removed install command does not execute a package manager", async () => {
+  let calls = 0;
+  const harness = statusHarness(async () => { calls++; throw new Error("must not execute"); });
+  await harness.commands.get("browser")!.handler("install", {
+    ui: { notify: (message: string, level: string) => harness.notices.push({ message, level }) },
   });
-
-  assert.equal(notices.at(-1)?.level, "error");
-  assert.match(notices.at(-1)?.message ?? "", /run \/browser status/i);
-  assert.match(notices.at(-1)?.message ?? "", /package-local agent-browser doctor --offline --quick --json/);
-  assert.doesNotMatch(notices.at(-1)?.message ?? "", /doctor --fix/);
+  assert.equal(calls, 0);
+  assert.match(harness.notices[0].message, /Usage:/);
+  assert.doesNotMatch(harness.notices[0].message, /browser install/);
 });
 
 test("off disables tools even when an owned browser close fails", async (t) => {
@@ -212,14 +176,14 @@ test("off disables tools even when an owned browser close fails", async (t) => {
     getActiveTools: () => [...active],
     setActiveTools: (names: string[]) => { active = [...names]; },
     appendEntry: () => {},
-    exec: async (_command: string, args: string[]) => {
+    exec: withCompatibleCli(async (_command, args) => {
       const action = args.find((arg) => ["open", "snapshot", "close"].includes(arg));
       if (action === "close") return { code: 1, stdout: "", stderr: "close failed", killed: false };
       if (action === "open") {
         return { code: 0, stdout: JSON.stringify({ success: true, data: { url: "http://localhost/", title: "Fixture" } }), stderr: "", killed: false };
       }
       return { code: 0, stdout: JSON.stringify({ success: true, data: { snapshot: "heading Fixture" } }), stderr: "", killed: false };
-    },
+    }),
   } as unknown as ExtensionAPI;
   createBrowserExtension({ artifacts })(pi);
   const ctx = {
@@ -260,7 +224,7 @@ test("reload preserves owned artifacts and terminal shutdown removes them", asyn
       getActiveTools: () => [...active],
       setActiveTools: (names: string[]) => { active = [...names]; },
       appendEntry: () => {},
-      exec: async (_command: string, args: string[]) => {
+      exec: withCompatibleCli(async (_command, args) => {
         const action = args.find((arg) => ["open", "snapshot", "screenshot", "close"].includes(arg));
         if (action === "open") return { code: 0, stdout: JSON.stringify({ success: true, data: { url: "http://localhost/" } }), stderr: "", killed: false };
         if (action === "snapshot") return { code: 0, stdout: JSON.stringify({ success: true, data: { snapshot: "heading Fixture" } }), stderr: "", killed: false };
@@ -269,7 +233,7 @@ test("reload preserves owned artifacts and terminal shutdown removes them", asyn
           return { code: 0, stdout: JSON.stringify({ success: true, data: {} }), stderr: "", killed: false };
         }
         return { code: 0, stdout: JSON.stringify({ success: true, data: {} }), stderr: "", killed: false };
-      },
+      }),
     } as unknown as ExtensionAPI;
     createBrowserExtension({ artifacts })(pi);
     return { tools, handlers };
